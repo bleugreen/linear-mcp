@@ -1,28 +1,8 @@
 # Legible Linear MCP
 
-A high-performance HTTP service that bridges Claude Code (or any MCP client) with Linear's GraphQL API. Built to make accessing Linear comfortable for LLMs via dynamic UUID resolution 
+A high-performance HTTP service that bridges Claude Code (or any MCP client) with Linear's GraphQL API. 
 
-### Core Capabilities
-- **JSON-RPC 2.0 API**: Full CRUD operations on Linear entities (issues, comments, projects, cycles, teams, users)
-- **Smart Content Chunking**: Automatically splits large content across multiple comments - never truncates data
-- **Human-Readable Identifiers**: Use team keys (SOFT), issue identifiers (SOFT-123), project names, and user emails instead of UUIDs
-- **UUID-Free Responses**: All responses use human-readable identifiers, no UUIDs exposed
-- **Comment Positioning**: Comments include position numbers instead of UUIDs
-- **Markdown Export**: Get full issue content with all comments in clean markdown format
-- **Server-Sent Events (SSE)**: Real-time push updates with automatic heartbeat (15s)
-- **Webhook Integration**: Receive and broadcast Linear webhook events as MCP notifications
-
-### Reliability & Performance
-- **Rate Limiting**: Automatic exponential backoff respecting Linear's 1,500 req/hr limit
-- **Query Complexity Management**: Automatically handles Linear's 10,000 complexity limit by splitting queries
-- **Error Recovery**: Comprehensive error handling with detailed JSON-RPC error responses
-- **Observability**: Prometheus metrics and structured JSON logging with Pino
-
-### Developer Experience
-- **Type Safety**: Full TypeScript with Linear's official SDK
-- **Human-Friendly Input**: Use team keys (SOFT), issue identifiers (SOFT-123), project names, state names, label names, and user emails
-- **No UUIDs Required**: All methods accept human-readable identifiers, UUIDs still supported for backwards compatibility
-- **No Data Loss**: Smart chunking ensures all content is preserved, even if it exceeds Linear's limits
+Built to make accessing Linear more comfortable for LLMs 
 
 ## 📋 Prerequisites
 
@@ -64,6 +44,30 @@ npm run build
 ```
 
 Linear API keys can be created by going to Workspace Settings > Security & Access > "New API key"
+
+---
+
+### Core Capabilities
+- **JSON-RPC 2.0 API**: Full CRUD operations on Linear entities (issues, comments, projects, cycles, teams, users)
+- **Smart Content Chunking**: Automatically splits large content across multiple comments - never truncates data
+- **Human-Readable Identifiers**: Use team keys (SOFT), issue identifiers (SOFT-123), project names, and user emails instead of UUIDs
+- **UUID-Free Responses**: All responses use human-readable identifiers, no UUIDs exposed
+- **Comment Positioning**: Comments include position numbers instead of UUIDs
+- **Markdown Export**: Get full issue content with all comments in clean markdown format
+- **Server-Sent Events (SSE)**: Real-time push updates with automatic heartbeat (15s)
+- **Webhook Integration**: Receive and broadcast Linear webhook events as MCP notifications
+
+### Reliability & Performance
+- **Rate Limiting**: Automatic exponential backoff respecting Linear's 1,500 req/hr limit
+- **Query Complexity Management**: Automatically handles Linear's 10,000 complexity limit by splitting queries
+- **Error Recovery**: Comprehensive error handling with detailed JSON-RPC error responses
+- **Observability**: Prometheus metrics and structured JSON logging with Pino
+
+### Developer Experience
+- **Type Safety**: Full TypeScript with Linear's official SDK
+- **Human-Friendly Input**: Use team keys (SOFT), issue identifiers (SOFT-123), project names, state names, label names, and user emails
+- **No UUIDs Required**: All methods accept human-readable identifiers, UUIDs still supported for backwards compatibility
+- **No Data Loss**: Smart chunking ensures all content is preserved, even if it exceeds Linear's limits
 
 ---
 
