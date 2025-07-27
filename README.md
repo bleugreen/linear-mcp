@@ -1,4 +1,4 @@
-# Linear MCP Server
+# Legible Linear MCP
 
 A high-performance HTTP service that bridges Claude Code (or any MCP client) with Linear's GraphQL API. Built to make accessing Linear comfortable for LLMs via dynamic UUID resolution 
 
