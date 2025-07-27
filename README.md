@@ -50,7 +50,7 @@ Linear API keys can be created by going to Workspace Settings > Security & Acces
 ### Core Capabilities
 - **JSON-RPC 2.0 API**: Full CRUD operations on Linear entities (issues, comments, projects, cycles, teams, users)
 - **Smart Content Chunking**: Automatically splits large content across multiple comments - never truncates data
-- **Human-Readable Identifiers**: Use team keys (SOFT), issue identifiers (SOFT-123), project names, and user emails instead of UUIDs
+- **Human-Readable Identifiers**: Use team keys (TEAM), issue identifiers (TEAM-123), project names, and user emails instead of UUIDs
 - **UUID-Free Responses**: All responses use human-readable identifiers, no UUIDs exposed
 - **Comment Positioning**: Comments include position numbers instead of UUIDs
 - **Markdown Export**: Get full issue content with all comments in clean markdown format
@@ -75,8 +75,8 @@ Linear API keys can be created by going to Workspace Settings > Security & Acces
 ### Available RPC Methods
 
 #### Issues
-- `linear.issues.list` - List issues with pagination (accepts team key: "SOFT")
-- `linear.issues.get` - Get issue by identifier (e.g., "SOFT-123")
+- `linear.issues.list` - List issues with pagination (accepts team key: "TEAM")
+- `linear.issues.get` - Get issue by identifier (e.g., "TEAM-123")
 - `linear.issues.create` - Create issue (accepts team key, state name, label names)
 - `linear.issues.update` - Update issue (accepts issue identifier)
 - `linear.issues.delete` - Archive an issue (accepts issue identifier)
@@ -111,7 +111,7 @@ curl -X POST http://localhost:3000/rpc \
   -d '{
     "jsonrpc": "2.0",
     "method": "linear.issues.markdown",
-    "params": {"id": "SOFT-123"},
+    "params": {"id": "TEAM-123"},
     "id": 1
   }'
 
@@ -129,7 +129,7 @@ curl -X POST http://localhost:3000/rpc \
     "params": {
       "title": "RFC: New Architecture",
       "description": "... 100KB of content ...",
-      "teamId": "SOFT",
+      "teamId": "TEAM",
       "stateId": "In Progress",
       "assigneeId": "user@example.com",
       "labelIds": ["bug", "high-priority"]
@@ -138,7 +138,7 @@ curl -X POST http://localhost:3000/rpc \
   }'
 
 # Response (no UUIDs):
-# {"identifier": "SOFT-123", "title": "...", "url": "...", "chunked": true, "chunks": 2}
+# {"identifier": "TEAM-123", "title": "...", "url": "...", "chunked": true, "chunks": 2}
 ```
 
 ### Subscribe to Real-time Updates
@@ -159,7 +159,7 @@ curl -X POST http://localhost:3000/rpc \
     "jsonrpc": "2.0",
     "method": "linear.issues.list",
     "params": {
-      "teamId": "SOFT",
+      "teamId": "TEAM",
       "projectId": "Mobile App",
       "assigneeId": "john@example.com",
       "stateId": "Done",
@@ -176,7 +176,7 @@ curl -X POST http://localhost:3000/rpc \
   -d '{
     "jsonrpc": "2.0",
     "method": "linear.comments.list",
-    "params": {"issueId": "SOFT-123"},
+    "params": {"issueId": "TEAM-123"},
     "id": 4
   }'
 
