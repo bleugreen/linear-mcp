@@ -1,6 +1,6 @@
 # Linear MCP Server
 
-A high-performance HTTP service that bridges Claude Code (or any MCP client) with Linear's GraphQL API. Built to make accessing Linear a comfortable and legible experience for LLMs
+A high-performance HTTP service that bridges Claude Code (or any MCP client) with Linear's GraphQL API. Built to make accessing Linear comfortable for LLMs via dynamic UUID resolution 
 
 ### Core Capabilities
 - **JSON-RPC 2.0 API**: Full CRUD operations on Linear entities (issues, comments, projects, cycles, teams, users)
