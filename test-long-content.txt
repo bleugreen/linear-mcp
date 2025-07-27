@@ -1,0 +1,13 @@
+This is a test of the chunking functionality for Linear MCP. When content exceeds 65KB, it should be intelligently split into multiple comments with proper indicators.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+
+This paragraph will be repeated many times to create a large amount of content that exceeds Linear's 65KB limit for a single comment or description field. The smart chunking algorithm should:
+
+1. Try to split on paragraph boundaries when possible
+2. Fall back to sentence boundaries if paragraphs are too long
+3. As a last resort, split on word boundaries
+4. Never truncate or lose any content
+5. Add clear indicators showing which part of the content you're reading
+
+Here's another paragraph with different content to add variety. The chunking system should handle various types of content including technical documentation, code snippets, long descriptions, and detailed specifications. It should preserve formatting and ensure readability across chunks.

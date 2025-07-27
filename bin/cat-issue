@@ -1,0 +1,142 @@
+#!/bin/bash
+
+# cat-issue - Get Linear issue details as markdown
+# Usage: cat-issue FIRM-123
+
+if [ -z "$1" ]; then
+    echo "Usage: cat-issue ISSUE-ID"
+    echo "Example: cat-issue FIRM-123"
+    exit 1
+fi
+
+ISSUE_ID="$1"
+
+# Check if LINEAR_API_KEY is set
+if [ -z "$LINEAR_API_KEY" ]; then
+    # Try to load from .env file
+    if [ -f "$(dirname "$0")/../.env" ]; then
+        export $(grep LINEAR_API_KEY "$(dirname "$0")/../.env" | xargs)
+    fi
+    
+    if [ -z "$LINEAR_API_KEY" ]; then
+        echo "Error: LINEAR_API_KEY not set"
+        echo "Set it as an environment variable or in the .env file"
+        exit 1
+    fi
+fi
+
+# GraphQL query to get issue details
+QUERY='query($id: String!) {
+  issue(id: $id) {
+    identifier
+    title
+    description
+    state {
+      name
+    }
+    assignee {
+      name
+      email
+    }
+    team {
+      name
+      key
+    }
+    priority
+    createdAt
+    updatedAt
+    url
+    labels {
+      nodes {
+        name
+      }
+    }
+    project {
+      name
+    }
+    parent {
+      identifier
+      title
+    }
+    comments {
+      nodes {
+        body
+        createdAt
+        user {
+          name
+        }
+      }
+    }
+  }
+}'
+
+# Make the GraphQL request
+RESPONSE=$(curl -s -X POST https://api.linear.app/graphql \
+  -H "Authorization: $LINEAR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"query\": \"$(echo "$QUERY" | tr '\n' ' ' | sed 's/"/\\"/g')\",
+    \"variables\": {\"id\": \"$ISSUE_ID\"}
+  }")
+
+# Check if we got an error
+if echo "$RESPONSE" | grep -q '"errors"'; then
+    echo "Error fetching issue:"
+    echo "$RESPONSE" | jq -r '.errors[0].message'
+    exit 1
+fi
+
+# Extract issue data using jq
+ISSUE=$(echo "$RESPONSE" | jq -r '.data.issue')
+
+if [ "$ISSUE" = "null" ]; then
+    echo "Issue not found: $ISSUE_ID"
+    exit 1
+fi
+
+# Format as markdown
+echo "# $(echo "$ISSUE" | jq -r '.identifier'): $(echo "$ISSUE" | jq -r '.title')"
+echo ""
+echo "$(echo "$ISSUE" | jq -r '.state.name // "N/A"') | $(echo "$ISSUE" | jq -r '.assignee.name // "Unassigned"')"
+
+PRIORITY=$(echo "$ISSUE" | jq -r '.priority // 0')
+case $PRIORITY in
+    1) echo "🔴 Urgent" ;;
+    2) echo "🟠 High" ;;
+    3) echo "🟡 Normal" ;;
+    4) echo "🟢 Low" ;;
+    *) ;;
+esac
+
+PROJECT=$(echo "$ISSUE" | jq -r '.project.name // null')
+if [ "$PROJECT" != "null" ]; then
+    echo "$PROJECT"
+fi
+
+PARENT=$(echo "$ISSUE" | jq -r '.parent // null')
+if [ "$PARENT" != "null" ]; then
+    echo "Parent: $(echo "$PARENT" | jq -r '.identifier')"
+fi
+
+LABELS=$(echo "$ISSUE" | jq -r '.labels.nodes[] | .name' 2>/dev/null | paste -sd ", " -)
+if [ -n "$LABELS" ]; then
+    echo "$LABELS"
+fi
+
+echo ""
+DESCRIPTION=$(echo "$ISSUE" | jq -r '.description // "No description"')
+if [ "$DESCRIPTION" = "No description" ]; then
+    echo "*No description*"
+else
+    echo "$DESCRIPTION"
+fi
+
+# Add comments if any
+COMMENTS=$(echo "$ISSUE" | jq -r '.comments.nodes | length')
+if [ "$COMMENTS" -gt 0 ]; then
+    echo ""
+    echo "---"
+    echo ""
+    
+    echo "$ISSUE" | jq -r '.comments.nodes[] | .user.name + " (" + (.createdAt | split("T")[0]) + "):\n" + .body + "\n"'
+fi
