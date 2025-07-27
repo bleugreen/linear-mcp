@@ -47,9 +47,9 @@ npm run build
 ```
 
 3. Add to ~/.claude.json
-.```json
+```json
+{
 ...,
-
 "mcpServers": {
     "linear-mcp": {
       "type": "stdio",
@@ -62,7 +62,6 @@ npm run build
       }
     }
   }
-
 }
 ```
 
