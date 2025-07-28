@@ -14,7 +14,7 @@ Built to make accessing Linear more comfortable for LLMs
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/bleugreen.git
+git clone https://github.com/bleugreen/linear-mcp.git
 cd linear-mcp
 ```
 
