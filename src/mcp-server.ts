@@ -95,6 +95,21 @@ const tools: Tool[] = [
     },
   },
   {
+    name: "mcp__linear__create_subissue",
+    description: "Create a sub-issue under a parent issue",
+    inputSchema: {
+      type: "object",
+      properties: {
+        parentId: { type: "string", description: "The parent issue identifier (e.g., 'OPS-123')" },
+        title: { type: "string", description: "The sub-issue title" },
+        description: { type: "string", description: "The sub-issue description (optional)" },
+        stateId: { type: "string", description: "The state name (optional, e.g., 'Todo')" },
+        labelIds: { type: "array", items: { type: "string" }, description: "Label names (optional)" }
+      },
+      required: ["parentId", "title"]
+    },
+  },
+  {
     name: "mcp__linear__update_issue",
     description: "Update an existing Linear issue",
     inputSchema: {
@@ -392,6 +407,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             },
           ],
         };
+
+      case "mcp__linear__create_subissue": {
+        // First, get the parent issue to retrieve its teamId
+        const parentIssueData = await linearService.getIssueMarkdown({ id: args?.parentId });
+        
+        // Extract team info from the markdown using regex
+        const teamMatch = parentIssueData.markdown.match(/\*\*Team:\*\* .+ \((\w+)\)/);
+        if (!teamMatch || !teamMatch[1]) {
+          throw new Error(`Could not determine team for parent issue ${String(args?.parentId)}`);
+        }
+        const teamId = teamMatch[1];
+        
+        // Create the sub-issue with the parent's teamId and the provided parentId
+        const subissueArgs = {
+          title: args?.title,
+          description: args?.description,
+          teamId: teamId,
+          parentId: args?.parentId,
+          stateId: args?.stateId,
+          labelIds: args?.labelIds
+        };
+        
+        const newSubissue = await linearService.createIssue(subissueArgs);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `✅ Created sub-issue **${newSubissue.identifier}** under **${String(args?.parentId)}**: ${newSubissue.title}`,
+            },
+          ],
+        };
+      }
 
       case "mcp__linear__update_issue":
         const updatedIssue = await linearService.updateIssue(args || {});
