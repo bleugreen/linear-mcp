@@ -419,12 +419,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const teamId = teamMatch[1];
         
-        // Create the sub-issue with the parent's teamId and the provided parentId
+        // Extract the parent issue UUID from the markdown
+        const idMatch = parentIssueData.markdown.match(/\*\*ID:\*\* `([a-f0-9-]+)`/);
+        if (!idMatch || !idMatch[1]) {
+          throw new Error(`Could not extract UUID for parent issue ${String(args?.parentId)}`);
+        }
+        const parentUuid = idMatch[1];
+        
+        // Create the sub-issue with the parent's teamId and resolved UUID
         const subissueArgs = {
           title: args?.title,
           description: args?.description,
           teamId: teamId,
-          parentId: args?.parentId,
+          parentId: parentUuid,
           stateId: args?.stateId,
           labelIds: args?.labelIds
         };
