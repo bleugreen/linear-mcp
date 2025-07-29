@@ -448,6 +448,7 @@ export class LinearService {
           priority,
           estimate,
           labelIds: resolvedLabelIds,
+          parentId: params.parentId,
         });
 
         const issue = await issuePayload.issue;
@@ -492,6 +493,7 @@ export class LinearService {
           priority,
           estimate,
           labelIds: resolvedLabelIds,
+          parentId: params.parentId,
         });
 
         const issue = await issuePayload.issue;
