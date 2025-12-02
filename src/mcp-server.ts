@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { LinearService } from "./services/linear-service.js";
 import { SSEManager } from "./services/sse-manager.js";
+import { getAccessToken, getActiveWorkspaceKey } from "./auth/credentials.js";
 import dotenv from "dotenv";
 import * as path from "path";
 
@@ -32,13 +33,29 @@ const server = new Server(
 let sseManager: SSEManager;
 let linearService: LinearService;
 
-try {
+async function initializeServices(): Promise<void> {
+  // Get access token (checks env var first, then OAuth credentials)
+  const accessToken = await getAccessToken();
+
+  if (!accessToken) {
+    const workspaceKey = getActiveWorkspaceKey();
+    if (workspaceKey) {
+      console.error(`No valid credentials found for workspace: ${workspaceKey}`);
+      console.error("Run `linear-mcp auth login` to re-authenticate.");
+    } else {
+      console.error("No Linear credentials found.");
+      console.error("Please either:");
+      console.error("  1. Run `linear-mcp auth login` to authenticate via OAuth");
+      console.error("  2. Set the LINEAR_API_KEY environment variable");
+    }
+    process.exit(1);
+  }
+
   sseManager = new SSEManager(15000); // Default heartbeat interval
-  linearService = new LinearService(process.env.LINEAR_API_KEY!, sseManager);
-} catch (error) {
-  console.error("Failed to initialize services:", error);
-  process.exit(1);
+  linearService = new LinearService(accessToken, sseManager);
 }
+
+// Services will be initialized in runServer() before connecting
 
 const tools: Tool[] = [
   {
@@ -721,6 +738,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 async function runServer() {
   try {
+    // Initialize services first (get credentials, create LinearService)
+    await initializeServices();
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Linear MCP server running on stdio");

@@ -1,165 +1,125 @@
 # Legible Linear MCP
 
-A high-performance HTTP service that bridges Claude Code (or any MCP client) with Linear's GraphQL API. 
+An MCP server that connects Claude Code to Linear with OAuth authentication and multi-workspace support.
 
-Built to make accessing Linear more comfortable for LLMs 
+## 🚀 Quick Start
 
-## 📋 Prerequisites
+### 1. Install
 
-- Node.js 18+ 
-- Linear API key ([Get one here](https://linear.app/settings/account/security))
-- Optional: Linear webhook secret for webhook validation
-
-## 🛠️ Installation
-
-1. Clone the repository:
 ```bash
+# Clone and build
 git clone https://github.com/bleugreen/linear-mcp.git
 cd linear-mcp
-```
-
-2. Install dependencies:
-```bash
 npm install
 npm run build
+
+# Install CLI globally (optional, for easy auth management)
+npm link
 ```
 
-3. Add to ~/.claude.json
+### 2. Authenticate
+
+```bash
+# Opens browser for OAuth login
+lmcp auth login
+
+# Or if not installed globally:
+node dist/cli.js auth login
+```
+
+### 3. Configure Claude Code
+
+Add to your Claude Code MCP settings (`~/.claude.json` or via Claude Code settings):
+
 ```json
 {
-...,
-"mcpServers": {
+  "mcpServers": {
     "linear-mcp": {
       "type": "stdio",
       "command": "node",
-      "args": [
-        "/PATH/TO/linear-mcp/dist/mcp-server.js"
-      ],
-      "env": {
-        "LINEAR_API_KEY": "YOUR_API_KEY"
-      }
+      "args": ["/path/to/linear-mcp/dist/mcp-server.js"]
     }
   }
 }
 ```
 
-Linear API keys can be created by going to Workspace Settings > Security & Access > "New API key"
+Restart Claude Code and you're ready to go!
 
----
+## 🔐 Authentication
+
+### OAuth (Recommended)
+
+OAuth provides a seamless authentication experience with automatic token refresh:
+
+```bash
+lmcp auth login      # Authenticate with Linear
+lmcp auth status     # Check current auth status
+lmcp auth list       # List connected workspaces
+lmcp auth switch     # Switch active workspace
+lmcp auth logout     # Remove a workspace
+```
+
+Credentials are stored securely in `~/.linear-mcp/credentials.json`.
+
+### Multi-Workspace Support
+
+Connect to multiple Linear workspaces and switch between them:
+
+```bash
+# Add first workspace
+lmcp auth login
+
+# Add another workspace (will show consent screen)
+lmcp auth login
+
+# Switch between them
+lmcp auth switch my-company
+lmcp auth switch side-project
+```
+
+### Environment Variable (Legacy)
+
+You can also use an API key directly:
+
+```bash
+export LINEAR_API_KEY=lin_api_YOUR_KEY_HERE
+```
+
+Note: OAuth credentials take priority over the environment variable.
+
+## 🔧 CLI Reference
+
+```
+lmcp <command> [options]
+
+Commands:
+  auth login       Authenticate with Linear via OAuth
+  auth logout      Remove a workspace's credentials
+  auth list        List all connected workspaces
+  auth switch      Switch active workspace
+  auth status      Show current authentication status
+  serve            Start the MCP server (default)
+  help             Show help message
+
+Environment Variables:
+  LINEAR_API_KEY       Use API key instead of OAuth (fallback)
+  LINEAR_WORKSPACE     Override active workspace for session
+  LINEAR_CLIENT_ID     Use custom OAuth app client ID
+  LINEAR_CLIENT_SECRET Use custom OAuth app client secret
+```
+
+## ✨ Features
 
 ### Core Capabilities
-- **JSON-RPC 2.0 API**: Full CRUD operations on Linear entities (issues, comments, projects, cycles, teams, users)
-- **Smart Content Chunking**: Automatically splits large content across multiple comments - never truncates data
-- **Human-Readable Identifiers**: Use team keys (TEAM), issue identifiers (TEAM-123), project names, and user emails instead of UUIDs
-- **Markdown Export**: Get full issue content with all comments in clean markdown format
-- **Server-Sent Events (SSE)**: Real-time push updates with automatic heartbeat (15s)
-- **Webhook Integration**: Receive and broadcast Linear webhook events as MCP notifications
+- **Full CRUD**: Issues, comments, projects, cycles, teams, users
+- **Human-Readable IDs**: Use team keys (TEAM), issue identifiers (TEAM-123), project names, user emails
+- **Smart Chunking**: Automatically splits large content across multiple comments
+- **Markdown Export**: Get full issue content with all comments in clean markdown
 
-### Reliability & Performance
-- **Rate Limiting**: Automatic exponential backoff respecting Linear's 1,500 req/hr limit
-- **Query Complexity Management**: Automatically handles Linear's 10,000 complexity limit by splitting queries
-- **Error Recovery**: Comprehensive error handling with detailed JSON-RPC error responses
-- **Observability**: Prometheus metrics and structured JSON logging with Pino
-
----
-
- 
-### Available RPC Methods
-
-#### Issues
-- `linear.issues.list` - List issues with pagination (accepts team key: "TEAM")
-- `linear.issues.get` - Get issue by identifier (e.g., "TEAM-123")
-- `linear.issues.create` - Create issue (accepts team key, state name, label names)
-- `linear.issues.update` - Update issue (accepts issue identifier)
-- `linear.issues.delete` - Archive an issue (accepts issue identifier)
-- `linear.issues.markdown` - **Get full issue as markdown** (includes all comments)
-
-#### Comments
-- `linear.comments.list` - List comments with positions (accepts issue identifier)
-- `linear.comments.create` - Create comment with position tracking (accepts issue identifier)
-
-#### Projects
-- `linear.projects.list` - List all projects (no UUIDs in response)
-- `linear.projects.get` - Get project details (accepts project name)
-- `linear.projects.create` - Create new project (accepts team keys)
-- `linear.projects.update` - Update project (accepts project name)
-
-#### Teams, Cycles, Users
-- `linear.teams.list` - List all teams (returns team keys, no UUIDs)
-- `linear.teams.get` - Get team details (accepts team key)
-- `linear.cycles.list` - List cycles for a team (accepts team key)
-- `linear.users.get` - Get user details (accepts email address)
-- `linear.users.list` - List workspace users
-- `linear.users.me` - Get authenticated user
-- `linear.capabilities` - Get server capabilities and features
-
-## 💡 Usage Examples
-
-### Get Issue as Markdown
-```bash
-# Using identifier
-curl -X POST http://localhost:3000/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "linear.issues.markdown",
-    "params": {"id": "TEAM-123"},
-    "id": 1
-  }'
-
-# Response includes formatted markdown with issue details and all comments
-```
-
-### Create Issue with Human-Readable Identifiers
-```bash
-# Use team keys, state names, label names, and user emails
-curl -X POST http://localhost:3000/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "linear.issues.create",
-    "params": {
-      "title": "RFC: New Architecture",
-      "description": "... 100KB of content ...",
-      "teamId": "TEAM",
-      "stateId": "In Progress",
-      "assigneeId": "user@example.com",
-      "labelIds": ["bug", "high-priority"]
-    },
-    "id": 2
-  }'
-
-# Response (no UUIDs):
-# {"identifier": "TEAM-123", "title": "...", "url": "...", "chunked": true, "chunks": 2}
-```
-
-### Subscribe to Real-time Updates
-```bash
-# Connect to SSE stream
-curl -N http://localhost:3000/stream \
-  -H "X-Client-Id: my-client-123"
-
-# Configure Linear webhook to POST to:
-# https://your-domain.com/webhook
-```
-
-### List Issues with Human-Readable Filters
-```bash
-curl -X POST http://localhost:3000/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "linear.issues.list",
-    "params": {
-      "teamId": "TEAM",
-      "projectId": "Mobile App",
-      "assigneeId": "john@example.com",
-      "stateId": "Done",
-      "limit": 10
-    },
-    "id": 3
-  }'
-```
+### Reliability
+- **Auto Token Refresh**: OAuth tokens refresh automatically before expiry
+- **Rate Limiting**: Respects Linear's 1,500 req/hr limit with exponential backoff
+- **Query Splitting**: Handles Linear's 10,000 complexity limit automatically
 
 ---
 
