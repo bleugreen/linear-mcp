@@ -2,7 +2,7 @@
 
 An MCP server that connects Claude Code to Linear with OAuth authentication and multi-workspace support.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Install
 
@@ -45,7 +45,7 @@ Add to your Claude Code MCP settings (`~/.claude.json` or via Claude Code settin
 
 Restart Claude Code and you're ready to go!
 
-## 🔐 Authentication
+## Authentication
 
 ### OAuth (Recommended)
 
@@ -87,7 +87,7 @@ export LINEAR_API_KEY=lin_api_YOUR_KEY_HERE
 
 Note: OAuth credentials take priority over the environment variable.
 
-## 🔧 CLI Reference
+## CLI Reference
 
 ```
 lmcp <command> [options]
@@ -108,7 +108,7 @@ Environment Variables:
   LINEAR_CLIENT_SECRET Use custom OAuth app client secret
 ```
 
-## ✨ Features
+## Features
 
 ### Core Capabilities
 - **Full CRUD**: Issues, comments, projects, cycles, teams, users
@@ -123,13 +123,13 @@ Environment Variables:
 
 ---
 
-## 🔗 Related Links
+## Related Links
 
 - [Linear API Documentation](https://developers.linear.app)
 - [Model Context Protocol (MCP)](https://modelcontextprotocol.io)
 - [Linear TypeScript SDK](https://github.com/linear/linear)
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "Field membership argument userId required"
 The server handles this automatically by using raw GraphQL queries for affected endpoints.
