@@ -12,33 +12,39 @@ import {
   loadFolderBindings,
   resolveWorkspace,
   getWorkspace,
+  getBindingForPath,
+  resolveTeam,
+  getAccessToken,
 } from './auth/credentials.js';
+import { LinearService } from './services/linear-service.js';
 
 const HELP_TEXT = `
 linear-mcp - Linear MCP Server with OAuth Authentication
 
 USAGE:
-  linear-mcp <command> [options]
+  lmcp <command> [options]
 
 COMMANDS:
-  auth login       Authenticate with Linear via OAuth
-  auth logout      Remove a workspace's credentials
-  auth list        List all connected workspaces
-  auth switch      Switch active workspace
-  auth status      Show current authentication status
-  bind [workspace] Bind current directory to a workspace
-  unbind           Remove binding for current directory
-  bindings         List all folder bindings
-  serve            Start the MCP server (default)
-  help             Show this help message
+  login              Authenticate with Linear via OAuth
+  logout [workspace] Remove a workspace's credentials
+  list               List all connected workspaces
+  switch [workspace] Switch active workspace
+  status             Show current authentication status
+  teams              List teams in current workspace
+  bind <workspace> [team]  Bind current directory to workspace and optional team
+  unbind             Remove binding for current directory
+  bindings           List all folder bindings
+  serve              Start the MCP server (default)
+  help               Show this help message
 
 EXAMPLES:
-  linear-mcp auth login              # Add a new workspace
-  linear-mcp auth logout my-company  # Remove specific workspace
-  linear-mcp auth switch             # Interactively switch workspace
-  linear-mcp auth status             # Check auth status
-  linear-mcp bind my-company         # Bind cwd to workspace
-  linear-mcp unbind                  # Remove binding for cwd
+  lmcp login                    # Add a new workspace
+  lmcp logout my-company        # Remove specific workspace
+  lmcp switch other-workspace   # Switch active workspace
+  lmcp status                   # Check auth status
+  lmcp bind my-company          # Bind cwd to workspace
+  lmcp bind my-company ENG      # Bind cwd to workspace + team
+  lmcp unbind                   # Remove binding for cwd
 
 WORKSPACE RESOLUTION (multi-workspace only):
   1. LINEAR_WORKSPACE env var
@@ -46,14 +52,19 @@ WORKSPACE RESOLUTION (multi-workspace only):
   3. Folder binding (longest prefix match)
   4. Default active workspace
 
+TEAM AUTO-INJECTION:
+  When a folder is bound to a team, that team is automatically used
+  for issue operations unless you explicitly specify a different team.
+
 ENVIRONMENT:
-  LINEAR_API_KEY      Use API key instead of OAuth (takes precedence)
-  LINEAR_WORKSPACE    Override active workspace for this session
-  LINEAR_CLIENT_ID    Use custom OAuth app client ID
+  LINEAR_API_KEY       Use API key instead of OAuth
+  LINEAR_WORKSPACE     Override active workspace
+  LINEAR_TEAM          Override active team
+  LINEAR_CLIENT_ID     Use custom OAuth app client ID
   LINEAR_CLIENT_SECRET Use custom OAuth app client secret
 `;
 
-async function authLogin(): Promise<void> {
+async function cmdLogin(): Promise<void> {
   console.log('🔐 Starting Linear OAuth flow...\n');
   console.log('A browser window will open for you to authorize access.\n');
 
@@ -80,7 +91,7 @@ async function authLogin(): Promise<void> {
   }
 }
 
-async function authLogout(workspaceKey?: string): Promise<void> {
+async function cmdLogout(workspaceKey?: string): Promise<void> {
   const workspaces = listWorkspaces();
 
   if (workspaces.length === 0) {
@@ -88,14 +99,12 @@ async function authLogout(workspaceKey?: string): Promise<void> {
     return;
   }
 
-  // If no workspace specified, show list to choose from
   if (!workspaceKey) {
     console.log('Available workspaces:');
     workspaces.forEach((ws, i) => {
       console.log(`  ${i + 1}. ${ws.name} (${ws.urlKey})`);
     });
-    console.log('\nUsage: linear-mcp auth logout <workspace-key>');
-    console.log('Example: linear-mcp auth logout my-company');
+    console.log('\nUsage: lmcp logout <workspace-key>');
     return;
   }
 
@@ -112,7 +121,7 @@ async function authLogout(workspaceKey?: string): Promise<void> {
   }
 }
 
-function authList(): void {
+function cmdList(): void {
   const workspaces = listWorkspaces();
   const status = getAuthStatus();
 
@@ -123,7 +132,7 @@ function authList(): void {
 
   if (workspaces.length === 0) {
     console.log('No workspaces authenticated.');
-    console.log('\nRun `linear-mcp auth login` to authenticate.');
+    console.log('\nRun `lmcp login` to authenticate.');
     return;
   }
 
@@ -144,12 +153,12 @@ function authList(): void {
   });
 }
 
-function authSwitch(workspaceKey?: string): void {
+function cmdSwitch(workspaceKey?: string): void {
   const workspaces = listWorkspaces();
 
   if (workspaces.length === 0) {
     console.log('No workspaces authenticated.');
-    console.log('\nRun `linear-mcp auth login` to authenticate.');
+    console.log('\nRun `lmcp login` to authenticate.');
     return;
   }
 
@@ -163,8 +172,7 @@ function authSwitch(workspaceKey?: string): void {
     workspaces.forEach((ws, i) => {
       console.log(`  ${i + 1}. ${ws.name} (${ws.urlKey})`);
     });
-    console.log('\nUsage: linear-mcp auth switch <workspace-key>');
-    console.log('Example: linear-mcp auth switch my-company');
+    console.log('\nUsage: lmcp switch <workspace-key>');
     return;
   }
 
@@ -181,10 +189,10 @@ function authSwitch(workspaceKey?: string): void {
   }
 }
 
-function authStatus(): void {
+function cmdStatus(): void {
   const status = getAuthStatus();
 
-  console.log('Linear MCP Authentication Status\n');
+  console.log('Linear MCP Status\n');
 
   if (status.method === 'env') {
     console.log('🔑 Method: Environment Variable (LINEAR_API_KEY)');
@@ -196,7 +204,7 @@ function authStatus(): void {
   if (status.method === 'none') {
     console.log('❌ Status: Not authenticated');
     console.log('\nTo authenticate, either:');
-    console.log('  1. Run `linear-mcp auth login` for OAuth flow');
+    console.log('  1. Run `lmcp login` for OAuth flow');
     console.log('  2. Set LINEAR_API_KEY environment variable');
     return;
   }
@@ -222,6 +230,23 @@ function authStatus(): void {
     console.log(`   Active Workspace: none`);
   }
 
+  // Show resolved team if any
+  const team = resolveTeam();
+  if (team) {
+    let teamSource = 'folder binding';
+    if (process.env.LINEAR_TEAM) {
+      teamSource = 'LINEAR_TEAM env var';
+    } else {
+      const cwd = process.cwd();
+      const binding = getBindingForPath(cwd);
+      if (!binding?.team) {
+        teamSource = '.env file';
+      }
+    }
+    console.log(`   Active Team: ${team}`);
+    console.log(`   Team via: ${teamSource}`);
+  }
+
   console.log(`   Total Workspaces: ${status.workspaces.length}`);
 
   if (status.workspaces.length > 0) {
@@ -244,23 +269,52 @@ function authStatus(): void {
   if (bindingPaths.length > 0) {
     console.log('\nFolder Bindings:');
     bindingPaths.forEach((p) => {
-      console.log(`  ${p} → ${bindings[p]}`);
+      const b = bindings[p];
+      const teamStr = b.team ? ` (team: ${b.team})` : '';
+      console.log(`  ${p} → ${b.workspace}${teamStr}`);
     });
   }
 }
 
-function cmdBind(workspaceKey?: string): void {
+async function cmdTeams(): Promise<void> {
+  const accessToken = await getAccessToken();
+
+  if (!accessToken) {
+    console.log('Not authenticated. Run `lmcp login` first.');
+    return;
+  }
+
+  try {
+    // Use null SSEManager since we don't need it for listing teams
+    const linearService = new LinearService(accessToken, null as any);
+    const result = await linearService.listTeams({});
+
+    if (result.nodes.length === 0) {
+      console.log('No teams found in workspace.');
+      return;
+    }
+
+    console.log('Teams:\n');
+    result.nodes.forEach((team: any) => {
+      console.log(`  ${team.key.padEnd(10)} ${team.name}`);
+    });
+
+    const resolvedTeam = resolveTeam();
+    if (resolvedTeam) {
+      console.log(`\nActive team: ${resolvedTeam}`);
+    }
+  } catch (error) {
+    console.error(`Failed to list teams: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
+}
+
+function cmdBind(workspaceKey?: string, teamKey?: string): void {
   const workspaces = listWorkspaces();
 
   if (workspaces.length === 0) {
     console.log('No workspaces authenticated.');
-    console.log('\nRun `linear-mcp auth login` to authenticate.');
-    return;
-  }
-
-  if (workspaces.length === 1) {
-    console.log(`Only one workspace available. No binding needed.`);
-    console.log(`All directories will use: ${workspaces[0].name} (${workspaces[0].urlKey})`);
+    console.log('\nRun `lmcp login` to authenticate.');
     return;
   }
 
@@ -269,8 +323,10 @@ function cmdBind(workspaceKey?: string): void {
     workspaces.forEach((ws, i) => {
       console.log(`  ${i + 1}. ${ws.name} (${ws.urlKey})`);
     });
-    console.log('\nUsage: linear-mcp bind <workspace-key>');
-    console.log('Example: linear-mcp bind my-company');
+    console.log('\nUsage: lmcp bind <workspace-key> [team-key]');
+    console.log('Examples:');
+    console.log('  lmcp bind my-company');
+    console.log('  lmcp bind my-company ENG');
     return;
   }
 
@@ -286,9 +342,12 @@ function cmdBind(workspaceKey?: string): void {
   }
 
   const cwd = process.cwd();
-  setFolderBinding(cwd, workspaceKey);
+  setFolderBinding(cwd, workspaceKey, teamKey);
   console.log(`✅ Bound ${cwd}`);
-  console.log(`   → ${workspace.name} (${workspaceKey})`);
+  console.log(`   → Workspace: ${workspace.name} (${workspaceKey})`);
+  if (teamKey) {
+    console.log(`   → Team: ${teamKey}`);
+  }
 }
 
 function cmdUnbind(): void {
@@ -308,17 +367,20 @@ function cmdBindings(): void {
 
   if (paths.length === 0) {
     console.log('No folder bindings configured.');
-    console.log('\nUse `linear-mcp bind <workspace>` to bind current directory.');
+    console.log('\nUse `lmcp bind <workspace> [team]` to bind current directory.');
     return;
   }
 
   console.log('Folder Bindings:\n');
   paths.forEach((p) => {
-    const urlKey = bindings[p];
-    const workspace = getWorkspace(urlKey);
-    const name = workspace?.name || urlKey;
+    const binding = bindings[p];
+    const workspace = getWorkspace(binding.workspace);
+    const name = workspace?.name || binding.workspace;
     console.log(`  ${p}`);
-    console.log(`    → ${name} (${urlKey})`);
+    console.log(`    → Workspace: ${name} (${binding.workspace})`);
+    if (binding.team) {
+      console.log(`    → Team: ${binding.team}`);
+    }
     console.log('');
   });
 }
@@ -326,34 +388,34 @@ function cmdBindings(): void {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
-  const subcommand = args[1];
 
   switch (command) {
-    case 'auth':
-      switch (subcommand) {
-        case 'login':
-          await authLogin();
-          break;
-        case 'logout':
-          await authLogout(args[2]);
-          break;
-        case 'list':
-          authList();
-          break;
-        case 'switch':
-          authSwitch(args[2]);
-          break;
-        case 'status':
-          authStatus();
-          break;
-        default:
-          console.log('Unknown auth command. Available: login, logout, list, switch, status');
-          process.exit(1);
-      }
+    case 'login':
+      await cmdLogin();
+      break;
+
+    case 'logout':
+      await cmdLogout(args[1]);
+      break;
+
+    case 'list':
+      cmdList();
+      break;
+
+    case 'switch':
+      cmdSwitch(args[1]);
+      break;
+
+    case 'status':
+      cmdStatus();
+      break;
+
+    case 'teams':
+      await cmdTeams();
       break;
 
     case 'bind':
-      cmdBind(subcommand);
+      cmdBind(args[1], args[2]);
       break;
 
     case 'unbind':
@@ -365,7 +427,6 @@ async function main(): Promise<void> {
       break;
 
     case 'serve':
-      // Import and run the MCP server
       await import('./mcp-server.js');
       break;
 
@@ -376,13 +437,13 @@ async function main(): Promise<void> {
       break;
 
     case undefined:
-      // Default: run as MCP server (for backwards compatibility with Claude Code config)
+      // Default: run as MCP server (for backwards compatibility)
       await import('./mcp-server.js');
       break;
 
     default:
       console.log(`Unknown command: ${command}`);
-      console.log('Run `linear-mcp help` for usage information.');
+      console.log('Run `lmcp help` for usage information.');
       process.exit(1);
   }
 }

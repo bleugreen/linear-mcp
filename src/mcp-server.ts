@@ -9,7 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { LinearService } from "./services/linear-service.js";
 import { SSEManager } from "./services/sse-manager.js";
-import { getAccessToken, getActiveWorkspaceKey } from "./auth/credentials.js";
+import { getAccessToken, getActiveWorkspaceKey, resolveTeam } from "./auth/credentials.js";
 import dotenv from "dotenv";
 import * as path from "path";
 
@@ -41,11 +41,11 @@ async function initializeServices(): Promise<void> {
     const workspaceKey = getActiveWorkspaceKey();
     if (workspaceKey) {
       console.error(`No valid credentials found for workspace: ${workspaceKey}`);
-      console.error("Run `linear-mcp auth login` to re-authenticate.");
+      console.error("Run `lmcp login` to re-authenticate.");
     } else {
       console.error("No Linear credentials found.");
       console.error("Please either:");
-      console.error("  1. Run `linear-mcp auth login` to authenticate via OAuth");
+      console.error("  1. Run `lmcp login` to authenticate via OAuth");
       console.error("  2. Set the LINEAR_API_KEY environment variable");
     }
     process.exit(1);
@@ -383,17 +383,71 @@ const tools: Tool[] = [
   },
 ];
 
+// Tools that accept teamId parameter
+const TOOLS_WITH_TEAM = new Set([
+  'mcp__linear__list_issues',
+  'mcp__linear__create_issue',
+  'mcp__linear__search_issues',
+  'mcp__linear__list_states',
+  'mcp__linear__list_labels',
+]);
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
+  const resolvedTeam = resolveTeam();
+
+  // If no team is resolved, return tools as-is
+  if (!resolvedTeam) {
+    return { tools };
+  }
+
+  // Deep clone and modify tools to make teamId optional when a team is bound
+  const modifiedTools = tools.map(tool => {
+    if (!TOOLS_WITH_TEAM.has(tool.name)) {
+      return tool;
+    }
+
+    const schema = tool.inputSchema as any;
+    const required = schema.required as string[] | undefined;
+
+    // Remove teamId from required array if present
+    const newRequired = required?.filter((r: string) => r !== 'teamId');
+
+    // Update teamId description to indicate it's auto-filled
+    const properties = { ...schema.properties };
+    if (properties.teamId) {
+      properties.teamId = {
+        ...properties.teamId,
+        description: `${properties.teamId.description} (auto-filled: ${resolvedTeam})`,
+      };
+    }
+
+    return {
+      ...tool,
+      inputSchema: {
+        ...schema,
+        properties,
+        ...(newRequired && newRequired.length > 0 ? { required: newRequired } : {}),
+      },
+    };
+  });
+
+  return { tools: modifiedTools };
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
+  // Inject resolved team if applicable
+  let effectiveArgs = args || {};
+  const resolvedTeam = resolveTeam();
+  if (resolvedTeam && TOOLS_WITH_TEAM.has(name) && !effectiveArgs.teamId) {
+    effectiveArgs = { ...effectiveArgs, teamId: resolvedTeam };
+  }
+
   try {
     switch (name) {
       case "mcp__linear__list_issues":
-        const result = await linearService.listIssues(args || {});
+        const result = await linearService.listIssues(effectiveArgs);
         return {
           content: [
             {
@@ -415,7 +469,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "mcp__linear__create_issue":
-        const newIssue = await linearService.createIssue(args || {});
+        const newIssue = await linearService.createIssue(effectiveArgs);
         return {
           content: [
             {
@@ -488,7 +542,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "mcp__linear__list_states":
-        const statesResult = await linearService.listStates(args || {});
+        const statesResult = await linearService.listStates(effectiveArgs);
         const statesByType = statesResult.states.reduce((acc: any, state: any) => {
           if (!acc[state.type]) acc[state.type] = [];
           acc[state.type].push(state.name);
@@ -509,7 +563,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "mcp__linear__list_labels":
-        const labelsResult = await linearService.listLabels(args || {});
+        const labelsResult = await linearService.listLabels(effectiveArgs);
         const labelsList = labelsResult.labels.map((label: any) => `- ${label.name}`).join('\n');
         return {
           content: [
@@ -521,7 +575,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "mcp__linear__search_issues":
-        const searchResult = await linearService.searchIssues(args || {});
+        const searchResult = await linearService.searchIssues(effectiveArgs);
         return {
           content: [
             {

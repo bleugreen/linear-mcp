@@ -291,9 +291,9 @@ export function resolveWorkspace(): ResolvedWorkspace | null {
   }
 
   // 2. .env file in cwd
-  const envWorkspace = parseEnvFile(cwd);
-  if (envWorkspace) {
-    return { urlKey: envWorkspace, source: 'dotenv' };
+  const envFile = parseEnvFile(cwd);
+  if (envFile.workspace) {
+    return { urlKey: envFile.workspace, source: 'dotenv' };
   }
 
   // 3. Folder binding (longest prefix match)
@@ -385,21 +385,38 @@ export function clearAllCredentials(): void {
 }
 
 // ============================================================================
-// Folder Bindings - map directories to workspaces
+// Folder Bindings - map directories to workspaces and optional teams
 // ============================================================================
 
+export interface FolderBinding {
+  workspace: string;  // urlKey
+  team?: string;      // team key (e.g., 'ENG', 'OPS')
+}
+
 export interface FolderBindings {
-  [folderPath: string]: string; // path → urlKey
+  [folderPath: string]: FolderBinding;
 }
 
 /**
  * Load folder bindings from disk
+ * Handles migration from old format (string) to new format (object)
  */
 export function loadFolderBindings(): FolderBindings {
   try {
     if (fs.existsSync(FOLDER_BINDINGS_FILE)) {
       const data = fs.readFileSync(FOLDER_BINDINGS_FILE, 'utf-8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+
+      // Migrate old format (string values) to new format (object values)
+      const migrated: FolderBindings = {};
+      for (const [folderPath, value] of Object.entries(parsed)) {
+        if (typeof value === 'string') {
+          migrated[folderPath] = { workspace: value };
+        } else {
+          migrated[folderPath] = value as FolderBinding;
+        }
+      }
+      return migrated;
     }
   } catch (error) {
     console.error('Failed to load folder bindings:', error);
@@ -420,11 +437,11 @@ function saveFolderBindings(bindings: FolderBindings): void {
 }
 
 /**
- * Bind a folder path to a workspace
+ * Bind a folder path to a workspace and optional team
  */
-export function setFolderBinding(folderPath: string, urlKey: string): void {
+export function setFolderBinding(folderPath: string, workspace: string, team?: string): void {
   const bindings = loadFolderBindings();
-  bindings[folderPath] = urlKey;
+  bindings[folderPath] = { workspace, ...(team && { team }) };
   saveFolderBindings(bindings);
 }
 
@@ -442,9 +459,9 @@ export function removeFolderBinding(folderPath: string): boolean {
 }
 
 /**
- * Resolve workspace for a path using longest prefix match
+ * Get the binding for a path using longest prefix match
  */
-export function resolveBindingForPath(cwd: string): string | null {
+export function getBindingForPath(cwd: string): FolderBinding | null {
   const bindings = loadFolderBindings();
   const paths = Object.keys(bindings);
 
@@ -468,16 +485,55 @@ export function resolveBindingForPath(cwd: string): string | null {
 }
 
 /**
- * Parse .env file in a directory for LINEAR_WORKSPACE
+ * Resolve workspace for a path using longest prefix match
+ * @deprecated Use getBindingForPath instead for full binding info
  */
-export function parseEnvFile(cwd: string): string | null {
+export function resolveBindingForPath(cwd: string): string | null {
+  const binding = getBindingForPath(cwd);
+  return binding ? binding.workspace : null;
+}
+
+/**
+ * Parse .env file in a directory for LINEAR_WORKSPACE and LINEAR_TEAM
+ */
+export function parseEnvFile(cwd: string): { workspace?: string; team?: string } {
   const envPath = path.join(cwd, '.env');
   try {
-    if (!fs.existsSync(envPath)) return null;
+    if (!fs.existsSync(envPath)) return {};
     const content = fs.readFileSync(envPath, 'utf-8');
-    const match = content.match(/^LINEAR_WORKSPACE=(.+)$/m);
-    return match ? match[1].trim().replace(/^["']|["']$/g, '') : null;
+    const workspaceMatch = content.match(/^LINEAR_WORKSPACE=(.+)$/m);
+    const teamMatch = content.match(/^LINEAR_TEAM=(.+)$/m);
+    return {
+      workspace: workspaceMatch ? workspaceMatch[1].trim().replace(/^["']|["']$/g, '') : undefined,
+      team: teamMatch ? teamMatch[1].trim().replace(/^["']|["']$/g, '') : undefined,
+    };
   } catch {
-    return null;
+    return {};
   }
+}
+
+/**
+ * Resolve the current team based on env var, .env file, or folder binding
+ */
+export function resolveTeam(): string | null {
+  // 1. Shell env var
+  if (process.env.LINEAR_TEAM) {
+    return process.env.LINEAR_TEAM;
+  }
+
+  const cwd = process.cwd();
+
+  // 2. .env file in cwd
+  const envFile = parseEnvFile(cwd);
+  if (envFile.team) {
+    return envFile.team;
+  }
+
+  // 3. Folder binding
+  const binding = getBindingForPath(cwd);
+  if (binding?.team) {
+    return binding.team;
+  }
+
+  return null;
 }
