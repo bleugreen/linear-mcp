@@ -5,6 +5,7 @@ import { TokenResponse, WorkspaceInfo, refreshAccessToken, revokeToken } from '.
 
 const CONFIG_DIR = path.join(os.homedir(), '.linear-mcp');
 const CREDENTIALS_FILE = path.join(CONFIG_DIR, 'credentials.json');
+const FOLDER_BINDINGS_FILE = path.join(CONFIG_DIR, 'folder-bindings.json');
 
 // Refresh tokens 1 hour before expiry
 const REFRESH_BUFFER_MS = 60 * 60 * 1000;
@@ -217,15 +218,15 @@ export async function refreshWorkspaceToken(urlKey: string): Promise<StoredWorks
  * Automatically refreshes if needed
  *
  * Priority:
- * 1. OAuth credentials (if available)
- * 2. LINEAR_API_KEY env var (fallback)
+ * 1. Explicit workspaceUrlKey parameter
+ * 2. Resolved workspace (env var, .env file, folder binding, active workspace)
+ * 3. LINEAR_API_KEY env var (fallback)
  */
 export async function getAccessToken(workspaceUrlKey?: string): Promise<string | null> {
-  // Check for workspace override via env var
-  const envWorkspace = process.env.LINEAR_WORKSPACE;
-
   const credentials = loadCredentials();
-  const targetKey = workspaceUrlKey || envWorkspace || credentials.activeWorkspace;
+
+  // Use explicit parameter, or resolve workspace using full resolution logic
+  const targetKey = workspaceUrlKey || resolveWorkspace()?.urlKey;
 
   // Try OAuth credentials first
   if (targetKey) {
@@ -253,17 +254,69 @@ export async function getAccessToken(workspaceUrlKey?: string): Promise<string |
   return null;
 }
 
+export type WorkspaceResolutionSource =
+  | 'single'      // Only one workspace, no resolution needed
+  | 'env'         // LINEAR_WORKSPACE environment variable
+  | 'dotenv'      // .env file in cwd
+  | 'binding'     // Folder binding from folder-bindings.json
+  | 'active';     // Default active workspace
+
+export interface ResolvedWorkspace {
+  urlKey: string;
+  source: WorkspaceResolutionSource;
+}
+
+/**
+ * Get the currently active workspace key with resolution source
+ */
+export function resolveWorkspace(): ResolvedWorkspace | null {
+  const workspaces = listWorkspaces();
+
+  // No workspaces: nothing to resolve
+  if (workspaces.length === 0) {
+    return null;
+  }
+
+  // Single workspace: skip all resolution logic
+  if (workspaces.length === 1) {
+    return { urlKey: workspaces[0].urlKey, source: 'single' };
+  }
+
+  // Multi-workspace resolution order
+  const cwd = process.cwd();
+
+  // 1. Shell env var
+  if (process.env.LINEAR_WORKSPACE) {
+    return { urlKey: process.env.LINEAR_WORKSPACE, source: 'env' };
+  }
+
+  // 2. .env file in cwd
+  const envWorkspace = parseEnvFile(cwd);
+  if (envWorkspace) {
+    return { urlKey: envWorkspace, source: 'dotenv' };
+  }
+
+  // 3. Folder binding (longest prefix match)
+  const boundWorkspace = resolveBindingForPath(cwd);
+  if (boundWorkspace) {
+    return { urlKey: boundWorkspace, source: 'binding' };
+  }
+
+  // 4. Stored active workspace
+  const credentials = loadCredentials();
+  if (credentials.activeWorkspace) {
+    return { urlKey: credentials.activeWorkspace, source: 'active' };
+  }
+
+  return null;
+}
+
 /**
  * Get the currently active workspace key
  */
 export function getActiveWorkspaceKey(): string | null {
-  const envWorkspace = process.env.LINEAR_WORKSPACE;
-  if (envWorkspace) {
-    return envWorkspace;
-  }
-
-  const credentials = loadCredentials();
-  return credentials.activeWorkspace;
+  const resolved = resolveWorkspace();
+  return resolved ? resolved.urlKey : null;
 }
 
 /**
@@ -329,4 +382,102 @@ export function clearAllCredentials(): void {
     activeWorkspace: null,
     workspaces: {},
   });
+}
+
+// ============================================================================
+// Folder Bindings - map directories to workspaces
+// ============================================================================
+
+export interface FolderBindings {
+  [folderPath: string]: string; // path → urlKey
+}
+
+/**
+ * Load folder bindings from disk
+ */
+export function loadFolderBindings(): FolderBindings {
+  try {
+    if (fs.existsSync(FOLDER_BINDINGS_FILE)) {
+      const data = fs.readFileSync(FOLDER_BINDINGS_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Failed to load folder bindings:', error);
+  }
+  return {};
+}
+
+/**
+ * Save folder bindings to disk
+ */
+function saveFolderBindings(bindings: FolderBindings): void {
+  ensureConfigDir();
+  fs.writeFileSync(
+    FOLDER_BINDINGS_FILE,
+    JSON.stringify(bindings, null, 2),
+    { mode: 0o600 }
+  );
+}
+
+/**
+ * Bind a folder path to a workspace
+ */
+export function setFolderBinding(folderPath: string, urlKey: string): void {
+  const bindings = loadFolderBindings();
+  bindings[folderPath] = urlKey;
+  saveFolderBindings(bindings);
+}
+
+/**
+ * Remove a folder binding
+ */
+export function removeFolderBinding(folderPath: string): boolean {
+  const bindings = loadFolderBindings();
+  if (bindings[folderPath]) {
+    delete bindings[folderPath];
+    saveFolderBindings(bindings);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve workspace for a path using longest prefix match
+ */
+export function resolveBindingForPath(cwd: string): string | null {
+  const bindings = loadFolderBindings();
+  const paths = Object.keys(bindings);
+
+  if (paths.length === 0) return null;
+
+  // Find longest matching prefix
+  let bestMatch: string | null = null;
+  let bestLength = 0;
+
+  for (const boundPath of paths) {
+    // Check if cwd starts with this bound path
+    if (cwd === boundPath || cwd.startsWith(boundPath + path.sep)) {
+      if (boundPath.length > bestLength) {
+        bestMatch = boundPath;
+        bestLength = boundPath.length;
+      }
+    }
+  }
+
+  return bestMatch ? bindings[bestMatch] : null;
+}
+
+/**
+ * Parse .env file in a directory for LINEAR_WORKSPACE
+ */
+export function parseEnvFile(cwd: string): string | null {
+  const envPath = path.join(cwd, '.env');
+  try {
+    if (!fs.existsSync(envPath)) return null;
+    const content = fs.readFileSync(envPath, 'utf-8');
+    const match = content.match(/^LINEAR_WORKSPACE=(.+)$/m);
+    return match ? match[1].trim().replace(/^["']|["']$/g, '') : null;
+  } catch {
+    return null;
+  }
 }

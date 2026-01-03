@@ -7,6 +7,11 @@ import {
   setActiveWorkspace,
   listWorkspaces,
   getAuthStatus,
+  setFolderBinding,
+  removeFolderBinding,
+  loadFolderBindings,
+  resolveWorkspace,
+  getWorkspace,
 } from './auth/credentials.js';
 
 const HELP_TEXT = `
@@ -21,6 +26,9 @@ COMMANDS:
   auth list        List all connected workspaces
   auth switch      Switch active workspace
   auth status      Show current authentication status
+  bind [workspace] Bind current directory to a workspace
+  unbind           Remove binding for current directory
+  bindings         List all folder bindings
   serve            Start the MCP server (default)
   help             Show this help message
 
@@ -29,6 +37,14 @@ EXAMPLES:
   linear-mcp auth logout my-company  # Remove specific workspace
   linear-mcp auth switch             # Interactively switch workspace
   linear-mcp auth status             # Check auth status
+  linear-mcp bind my-company         # Bind cwd to workspace
+  linear-mcp unbind                  # Remove binding for cwd
+
+WORKSPACE RESOLUTION (multi-workspace only):
+  1. LINEAR_WORKSPACE env var
+  2. LINEAR_WORKSPACE in .env file (cwd only)
+  3. Folder binding (longest prefix match)
+  4. Default active workspace
 
 ENVIRONMENT:
   LINEAR_API_KEY      Use API key instead of OAuth (takes precedence)
@@ -187,21 +203,124 @@ function authStatus(): void {
 
   console.log('🔐 Method: OAuth');
   console.log(`   Status: Authenticated`);
-  console.log(`   Active Workspace: ${status.activeWorkspace || 'none'}`);
+
+  // Show resolved workspace with source
+  const resolved = resolveWorkspace();
+  if (resolved) {
+    const sourceLabels: Record<string, string> = {
+      single: 'only workspace',
+      env: 'LINEAR_WORKSPACE env var',
+      dotenv: '.env file',
+      binding: 'folder binding',
+      active: 'default active',
+    };
+    const workspace = getWorkspace(resolved.urlKey);
+    const name = workspace?.name || resolved.urlKey;
+    console.log(`   Active Workspace: ${name} (${resolved.urlKey})`);
+    console.log(`   Resolved via: ${sourceLabels[resolved.source]}`);
+  } else {
+    console.log(`   Active Workspace: none`);
+  }
+
   console.log(`   Total Workspaces: ${status.workspaces.length}`);
 
   if (status.workspaces.length > 0) {
     console.log('\nWorkspaces:');
     status.workspaces.forEach((ws) => {
-      const activeMarker = ws.isActive ? ' (active)' : '';
+      const isResolved = resolved?.urlKey === ws.urlKey;
+      const marker = isResolved ? '→' : ' ';
       const refreshNote = ws.needsRefresh ? ' [needs refresh]' : '';
       const expiry = ws.expiresAt ? ws.expiresAt.toLocaleString() : 'never';
 
-      console.log(`  - ${ws.name}${activeMarker}${refreshNote}`);
+      console.log(`${marker} ${ws.name}${refreshNote}`);
       console.log(`    Key: ${ws.urlKey}`);
       console.log(`    Expires: ${expiry}`);
     });
   }
+
+  // Show folder bindings if any exist
+  const bindings = loadFolderBindings();
+  const bindingPaths = Object.keys(bindings);
+  if (bindingPaths.length > 0) {
+    console.log('\nFolder Bindings:');
+    bindingPaths.forEach((p) => {
+      console.log(`  ${p} → ${bindings[p]}`);
+    });
+  }
+}
+
+function cmdBind(workspaceKey?: string): void {
+  const workspaces = listWorkspaces();
+
+  if (workspaces.length === 0) {
+    console.log('No workspaces authenticated.');
+    console.log('\nRun `linear-mcp auth login` to authenticate.');
+    return;
+  }
+
+  if (workspaces.length === 1) {
+    console.log(`Only one workspace available. No binding needed.`);
+    console.log(`All directories will use: ${workspaces[0].name} (${workspaces[0].urlKey})`);
+    return;
+  }
+
+  if (!workspaceKey) {
+    console.log('Available workspaces:');
+    workspaces.forEach((ws, i) => {
+      console.log(`  ${i + 1}. ${ws.name} (${ws.urlKey})`);
+    });
+    console.log('\nUsage: linear-mcp bind <workspace-key>');
+    console.log('Example: linear-mcp bind my-company');
+    return;
+  }
+
+  // Verify workspace exists
+  const workspace = workspaces.find((ws) => ws.urlKey === workspaceKey);
+  if (!workspace) {
+    console.log(`❌ Workspace not found: ${workspaceKey}`);
+    console.log('\nAvailable workspaces:');
+    workspaces.forEach((ws) => {
+      console.log(`  - ${ws.urlKey}`);
+    });
+    return;
+  }
+
+  const cwd = process.cwd();
+  setFolderBinding(cwd, workspaceKey);
+  console.log(`✅ Bound ${cwd}`);
+  console.log(`   → ${workspace.name} (${workspaceKey})`);
+}
+
+function cmdUnbind(): void {
+  const cwd = process.cwd();
+  const removed = removeFolderBinding(cwd);
+
+  if (removed) {
+    console.log(`✅ Removed binding for ${cwd}`);
+  } else {
+    console.log(`No binding found for ${cwd}`);
+  }
+}
+
+function cmdBindings(): void {
+  const bindings = loadFolderBindings();
+  const paths = Object.keys(bindings);
+
+  if (paths.length === 0) {
+    console.log('No folder bindings configured.');
+    console.log('\nUse `linear-mcp bind <workspace>` to bind current directory.');
+    return;
+  }
+
+  console.log('Folder Bindings:\n');
+  paths.forEach((p) => {
+    const urlKey = bindings[p];
+    const workspace = getWorkspace(urlKey);
+    const name = workspace?.name || urlKey;
+    console.log(`  ${p}`);
+    console.log(`    → ${name} (${urlKey})`);
+    console.log('');
+  });
 }
 
 async function main(): Promise<void> {
@@ -231,6 +350,18 @@ async function main(): Promise<void> {
           console.log('Unknown auth command. Available: login, logout, list, switch, status');
           process.exit(1);
       }
+      break;
+
+    case 'bind':
+      cmdBind(subcommand);
+      break;
+
+    case 'unbind':
+      cmdUnbind();
+      break;
+
+    case 'bindings':
+      cmdBindings();
       break;
 
     case 'serve':
