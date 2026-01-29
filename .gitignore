@@ -11,5 +11,8 @@ coverage/
 *.swp
 *.swo
 *~
-.cairn/
+# Cairn configuration (allow config.yaml and skills/, ignore runtime files)
+.cairn/*
+!.cairn/config.yaml
+!.cairn/skills/
 .cairn/assets/
