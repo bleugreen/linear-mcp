@@ -2,9 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import {
-  loadCredentials,
-  saveCredentials,
-  storeWorkspace,
   needsRefresh,
   getActiveWorkspace,
   setActiveWorkspace,
@@ -15,14 +12,12 @@ import {
   CredentialsStore,
   StoredWorkspace,
 } from './credentials';
-import { refreshAccessToken } from './oauth';
 
 // Mock fs module
 jest.mock('fs');
 jest.mock('./oauth');
 
 const mockFs = fs as jest.Mocked<typeof fs>;
-const mockRefreshAccessToken = refreshAccessToken as jest.MockedFunction<typeof refreshAccessToken>;
 
 describe('Credentials Management', () => {
   const mockConfigDir = path.join(os.homedir(), '.linear-mcp');
@@ -39,7 +34,6 @@ describe('Credentials Management', () => {
 
   describe('Token Refresh Logic', () => {
     const HOUR_MS = 60 * 60 * 1000;
-    const DAY_MS = 24 * HOUR_MS;
 
     it('should indicate refresh needed when token expires within 1 hour', () => {
       const now = Date.now();
