@@ -2,6 +2,11 @@
 
 An MCP server that connects Claude Code to Linear with OAuth authentication and multi-workspace support.
 
+## Requirements
+
+- Node.js 18+
+- A [Linear](https://linear.app) account
+
 ## Quick Start
 
 ### 1. Install
